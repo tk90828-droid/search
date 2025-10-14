@@ -259,6 +259,7 @@ async function sendFeedback(){
 fbSubmit.addEventListener('click', sendFeedback);
 ('click', sendFeedback);
 
+
 // === Quick feedback logic ===
 (function(){
   function showToast(msg){
@@ -283,6 +284,48 @@ fbSubmit.addEventListener('click', sendFeedback);
     }
   }catch(e){ console.warn('Leader datalist build failed', e); }
 
+  async function submitViaFetch(payload, msgEl){
+    const res = await fetch(WEB_APP_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" }, // simple request, avoid preflight
+      body: JSON.stringify(payload),
+      cache: "no-store"
+    });
+    const txt = await res.text();
+    let ok = false;
+    try { ok = JSON.parse(txt).ok; } catch(_) {}
+    if (!ok) throw new Error("Server response not ok: " + txt);
+    return true;
+  }
+
+  function submitViaIframe(payload, msgEl){
+    // Build a hidden form to bypass CORS entirely
+    const form = document.createElement('form');
+    form.action = WEB_APP_URL;
+    form.method = 'POST';
+    form.target = 'hidden_iframe_feedback';
+    form.style.display = 'none';
+
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = 'payload';
+    input.value = JSON.stringify(payload);
+    form.appendChild(input);
+
+    let iframe = document.getElementById('hidden_iframe_feedback');
+    if (!iframe) {
+      iframe = document.createElement('iframe');
+      iframe.name = 'hidden_iframe_feedback';
+      iframe.id = 'hidden_iframe_feedback';
+      iframe.style.display = 'none';
+      document.body.appendChild(iframe);
+    }
+
+    document.body.appendChild(form);
+    form.submit();
+    return true;
+  }
+
   const btn = document.getElementById('ftSubmit');
   if(!btn) return;
   btn.addEventListener('click', async ()=>{
@@ -298,23 +341,23 @@ fbSubmit.addEventListener('click', sendFeedback);
       return;
     }
 
+    const payload = { name, ig, status, notes, leader };
     msg.textContent = "送出中 / Sending...";
+
     try{
-      const res = await fetch(WEB_APP_URL, {
-        method: "POST",
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify({ name, ig, status, notes, leader })
-      });
-      const txt = await res.text();
-      let ok=false; try{ ok = JSON.parse(txt).ok; } catch(_){}
-      if (ok){
-        msg.innerHTML = "<span class='success'>✅ 已送出成功 / Submitted</span>";
+      await submitViaFetch(payload, msg);
+      msg.innerHTML = "<span class='success'>✅ 已送出成功 / Submitted</span>";
+      showToast("✔ 已成功送出 / Submitted");
+    } catch(err){
+      // Fallback: iframe POST
+      try{
+        submitViaIframe(payload, msg);
+        msg.innerHTML = "<span class='success'>✅ 已送出（備援表單） / Submitted (fallback)</span>";
         showToast("✔ 已成功送出 / Submitted");
-      } else {
-        msg.innerHTML = "<span class='error'>❌ 送出失敗 / Failed</span>";
+      }catch(e2){
+        msg.innerHTML = "<span class='error'>❌ 送出失敗，請稍候再試 / Failed</span>";
+        console.error("Submit failed", err, e2);
       }
-    }catch(err){
-      msg.innerHTML = "<span class='error'>❌ 網路錯誤：" + err + "</span>";
     }
   });
 })();
@@ -357,7 +400,7 @@ fbSubmit.addEventListener('click', sendFeedback);
     <div class="row" style="margin-top:8px;">
       <div class="input-wrap" style="grid-column: 3 / 4;">
         <label>&nbsp;</label>
-        <button id="ftSubmit">回傳 / Submit</button>
+        <button id="ftSubmit">送出 / Submit</button>
       </div>
     </div>
     <div id="ftMsg" class="note"></div>
